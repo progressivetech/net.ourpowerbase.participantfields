@@ -190,7 +190,7 @@ function participantfields_create_profiles() {
     // created as existing.
     CRM_Event_BAO_Participant::$_importableFields = NULL;
     $force = TRUE;
-    CRM_Core_BAO_UFField::getAvailableFieldsFlat($force);
+    $fields = CRM_Core_BAO_UFField::getAvailableFieldsFlat($force);
     foreach ($fields as $field_name => $props) {
       // Get the custom id of the field we want.
       $result = civicrm_api3('CustomField', 'get', array('name' => $field_name));
@@ -199,7 +199,13 @@ function participantfields_create_profiles() {
         $params = $template_params;
         $params['field_name'] = 'custom_' . $id;
         $params['label'] = $result['values'][$id]['label'];
-        civicrm_api3('UFField', 'create', $params);
+        try {
+          civicrm_api3('UFField', 'create', $params);
+        }
+        catch (CiviCRM_API3_Exception $e) {
+          CRM_Core_Error::debug_log_message("Failed to create profile field for '$field_name'.");
+        }
+
       }
     }
   }
