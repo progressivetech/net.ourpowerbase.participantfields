@@ -56,6 +56,16 @@ function participantfields_civicrm_postInstall() {
   }
 
   participantfields_create_profiles();
+
+  // Bugfix. It seems that managed entities do not properly set our
+  // custom data group to be based on participants by event so updated it here.
+  $params = array(
+    'name' => 'participantfields_participant_info',
+    'return' => 'id'
+  );
+  $id = civicrm_api3('CustomGroup', 'getvalue', $params);
+  $sql = 'UPDATE civicrm_custom_group SET extends_entity_column_id = 2 WHERE id = %0';
+  CRM_Core_DAO::executeQuery($sql, array(0 => array($id, 'Integer')));
 }
 
 /**
@@ -185,12 +195,6 @@ function participantfields_create_profiles() {
       'participantfields_reminder_date' => array(),
       'participantfields_reminder_response' => array(),
     );
-    // Go to ridiculous lengths to rewarm the cache so the function
-    // that builds the profiles will recognize the custom fields we just
-    // created as existing.
-    CRM_Event_BAO_Participant::$_importableFields = NULL;
-    $force = TRUE;
-    $fields = CRM_Core_BAO_UFField::getAvailableFieldsFlat($force);
     foreach ($fields as $field_name => $props) {
       // Get the custom id of the field we want.
       $result = civicrm_api3('CustomField', 'get', array('name' => $field_name));
