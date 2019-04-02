@@ -161,6 +161,7 @@ function participantfields_create_profiles() {
     $uf_group_id = $results['id'];
     $params = array_pop($results['values']);
     $params['name'] = $new_name;
+    CRM_Core_Error::debug_log_message("update event invite profile already exists, renaming.");
     civicrm_api3('UFGroup', 'create', $params);
   }
   else {
@@ -201,7 +202,6 @@ function participantfields_create_profiles() {
       'participantfields_reminder_response' => array(),
     );
     // Ensure the cache is clear so our new fields are recognized.
-    CRM_Core_PseudoConstant::flush();
     CRM_Event_BAO_Participant::$_importableFields = NULL;
     $force = TRUE;
     CRM_Core_BAO_UFField::getAvailableFieldsFlat($force);
@@ -227,11 +227,13 @@ function participantfields_create_profiles() {
     }
   }
 
-  // Lastly insert into managed entities so we can disable and remove
-  // if this extension is disabled and removed.
-  $sql = "INSERT INTO civicrm_managed SET module = 'net.ourpowerbase.participantfields',
-      name = %0, entity_type = 'UFGroup', entity_id = %1";
-  CRM_Core_DAO::executeQuery($sql, array(0 => array($new_name, 'String'), array($uf_group_id, 'Integer')));
+  // It would be nice to insert this profile into the managed table so it
+  // gets removed when we uninstall this profile, but there seesm to be some
+  // timing problems that cause the profile to be deleted as soon as we create
+  // it when this code is un-commented. 
+  //$sql = "INSERT INTO civicrm_managed SET module = 'net.ourpowerbase.participantfields',
+  //    name = %0, entity_type = 'UFGroup', entity_id = %1";
+  // CRM_Core_DAO::executeQuery($sql, array(0 => array($new_name, 'String'), array($uf_group_id, 'Integer')));
 }
 
 /**
