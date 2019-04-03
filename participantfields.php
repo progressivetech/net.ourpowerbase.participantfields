@@ -55,8 +55,6 @@ function participantfields_civicrm_postInstall() {
     participantfields_assign_option_group_to_custom_field($field_name, $option_group_name); 
   }
 
-  participantfields_create_profiles();
-
   // Bugfix. It seems that managed entities do not properly set our
   // custom data group to be based on participants by event so updated it here.
   $params = array(
@@ -66,6 +64,12 @@ function participantfields_civicrm_postInstall() {
   $id = civicrm_api3('CustomGroup', 'getvalue', $params);
   $sql = 'UPDATE civicrm_custom_group SET extends_entity_column_id = 2 WHERE id = %0';
   CRM_Core_DAO::executeQuery($sql, array(0 => array($id, 'Integer')));
+
+  // We add some special dynamic code to the managed hook call. So, we
+  // have to trigger a fresh reconciliation at the end of installation
+  // to ensure everything is properly created.
+  CRM_Core_ManagedEntities::singleton(TRUE)->reconcile();
+
 }
 
 /**
@@ -141,102 +145,22 @@ function participantfields_transfer_civicrm_engage_entities() {
       CRM_Core_DAO::executeQuery($sql, $params);
     }
   }
-}
 
-/**
- * Create profiles using our custom fields.
- *
- * Unfortunatley, api3 can't create profiles with custom fields
- * because the api depends on the id of the custom field. We
- * can't predict what that id is, so instead using the api and
- * managed entities, we create our profile here.
- */
-function participantfields_create_profiles() {
-  $old_name ='update_event_invite_responses';
-  $new_name = 'participantfields_update_event_invite_response';
-  $results = civicrm_api3('UFGroup', 'get', array('name' => $old_name));
-  if ($results['count'] > 0) {
-    // This means the profile already exists. We are going to rename it so
-    // we have consistent naming of this extensions entities. 
-    $uf_group_id = $results['id'];
-    $params = array_pop($results['values']);
-    $params['name'] = $new_name;
-    CRM_Core_Error::debug_log_message("update event invite profile already exists, renaming.");
-    civicrm_api3('UFGroup', 'create', $params);
-  }
-  else {
-    // This profile does not already exist. Let's create it.
-    $params = array(
-      'name' => $new_name,
-      'title' => 'Update Event Invite Response',
-      'description' => 'Powerbase profile for updating responses to invitations',
-      'is_active' => 1,
-      'is_update_dupe' => '1',
-    );
-    try {
-      $result = civicrm_api3('UFGroup', 'create', $params);
-    }
-    catch (CiviCRM_API3_Exception $e) {
-      CRM_Core_Error::debug_log_message($e->getMessage());
-      return;
-    }
-    $uf_group_id = $result['id'];
-    $template_params = array(
-      'uf_group_id' => $uf_group_id, 
-      'is_active' => '1',
-      'is_view' => '0',
-      'is_required' => '0',
-      'weight' => '10',
-      'visibility' => 'User and User Admin Only',
-      'field_type' => 'Participant',
-    );
-    $fields = array(
-      'participantfields_child_care_needed' => array(),
-      'participantfields_ride_to' => array(),
-      'participantfields_ride_from' => array(),
-      'participantfields_invitation_date' => array(),
-      'participantfields_invitation_response' => array(),
-      'participantfields_second_call_date' => array(),
-      'participantfields_second_call_response' => array(),
-      'participantfields_reminder_date' => array(),
-      'participantfields_reminder_response' => array(),
-    );
-    // Go to ridiculous lengths to clear the cache so the creation of the
-    // profile field will recognize that the custom field exists, even
-    // though it was created after the cache was populated.
-    CRM_Event_BAO_Participant::$_importableFields = NULL;
-    $force = TRUE;
-    CRM_Core_BAO_UFField::getAvailableFieldsFlat($force);
-    CRM_Core_Invoke::rebuildMenuAndCaches();
-    
-    foreach ($fields as $field_name => $props) {
-      // Get the custom id of the field we want.
-      $result = civicrm_api3('CustomField', 'get', array('name' => $field_name));
-      if ($result['count'] > 0) {
-        $id = $result['id'];
-        $params = $template_params;
-        $params['field_name'] = 'custom_' . $id;
-        $params['label'] = $result['values'][$id]['label'];
-        try {
-          civicrm_api3('UFField', 'create', $params);
-        }
-        catch (CiviCRM_API3_Exception $e) {
-          CRM_Core_Error::debug_log_message("Failed to create profile field for '$field_name'.");
-          CRM_Core_Error::debug_log_message($e->getMessage());
-          break;
-        }
-
-      }
+  $profiles = array(
+    'update_event_invite_responses' => 'participantfields_update_event_invite_response'
+  );
+  foreach ($profiles as $old_name => $new_name) {
+    $results = civicrm_api3('UFGroup', 'get', array('name' => $old_name));
+    if ($results['count'] > 0) {
+      // This means the profile already exists. We are going to rename it so
+      // we have consistent naming of this extensions entities. 
+      $uf_group_id = $results['id'];
+      $params = array_pop($results['values']);
+      $params['name'] = $new_name;
+      CRM_Core_Error::debug_log_message("update event invite profile already exists, renaming.");
+      civicrm_api3('UFGroup', 'create', $params);
     }
   }
-
-  // It would be nice to insert this profile into the managed table so it
-  // gets removed when we uninstall this profile, but there seesm to be some
-  // timing problems that cause the profile to be deleted as soon as we create
-  // it when this code is un-commented. 
-  //$sql = "INSERT INTO civicrm_managed SET module = 'net.ourpowerbase.participantfields',
-  //    name = %0, entity_type = 'UFGroup', entity_id = %1";
-  // CRM_Core_DAO::executeQuery($sql, array(0 => array($new_name, 'String'), array($uf_group_id, 'Integer')));
 }
 
 /**
@@ -266,6 +190,63 @@ function participantfields_civicrm_upgrade($op, CRM_Queue_Queue $queue = NULL) {
  * @link http://wiki.civicrm.org/confluence/display/CRMDOC/hook_civicrm_managed
  */
 function participantfields_civicrm_managed(&$entities) {
+  // We dynamically add our profile because api3 doesn't support adding
+  // custom fields using the name, we can only add them using their id
+  // and the id will change on every installation.
+  $profile  = array(
+    'name' => 'participantfields_update_event_invite_response',
+    'entity' => 'UFGroup',
+    'update' => 'never',
+    'module' => 'net.ourpowerbase.constituentfields',
+    'params' => array(
+      'version' => 3,
+      'title' => 'Update Event Invite Response',
+      'description' => 'Powerbase profile for updating responses to invitations',
+      'is_active' => 1,
+      'name' => 'participantfields_update_event_invite_response',
+    ),
+  );
+  $fields = array(
+    'participantfields_child_care_needed',
+    'participantfields_ride_to',
+    'participantfields_ride_from',
+    'participantfields_invitation_date',
+    'participantfields_invitation_response',
+    'participantfields_second_call_date',
+    'participantfields_second_call_response',
+    'participantfields_reminder_date',
+    'participantfields_reminder_response',
+  );
+ 
+  $profile_fields = array();
+  $weight = 0;
+  foreach ($fields as $field_name) {
+    // Get the custom id of the field we want.
+    $result = civicrm_api3('CustomField', 'get', array('name' => $field_name));
+    if ($result['count'] > 0) {
+      $id = $result['id'];
+      $values = array_pop($result['values']);
+      $label = $values['label'];
+      $profile_fields[] = array(
+        'uf_group_id' => '$value.id',
+        'field_name' => 'custom_' . $id,
+        'is_active' => 1,
+        'label' => $label,
+        'field_type' => 'Participant',
+        "weight" => 10 + $weight,
+        "in_selector" => "1",
+        "visibility" => "Public Pages and Listings",
+      );
+    }
+  }
+  // Depending on timing, the custom fields may not yet be created.
+  // If that's the case, don't add this at all - we want to wait
+  // until we have all the pieces before we add it because we have
+  // update set to never.
+  if (count($profile_fields) > 0) {
+    $profile['params']['api.uf_field.create'] = $profile_fields;
+    $entities[] = $profile;
+  }
   _participantfields_civix_civicrm_managed($entities);
 }
 
