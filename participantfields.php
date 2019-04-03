@@ -68,6 +68,13 @@ function participantfields_civicrm_postInstall() {
   // We add some special dynamic code to the managed hook call. So, we
   // have to trigger a fresh reconciliation at the end of installation
   // to ensure everything is properly created.
+ 
+  // Also, the participant custom fields are, for some reason, heavily cached. 
+  // So we have to clear that cache to ensure they are created properly.  
+  CRM_Event_BAO_Participant::$_importableFields = NULL;
+  $force = TRUE;
+  CRM_Core_BAO_UFField::getAvailableFieldsFlat($force);
+
   CRM_Core_ManagedEntities::singleton(TRUE)->reconcile();
 
 }
@@ -197,10 +204,10 @@ function participantfields_civicrm_managed(&$entities) {
     'name' => 'participantfields_update_event_invite_response',
     'entity' => 'UFGroup',
     'update' => 'never',
-    'module' => 'net.ourpowerbase.constituentfields',
+    'module' => 'net.ourpowerbase.participantfields',
     'params' => array(
       'version' => 3,
-      'title' => 'Update Event Invite Response',
+      'title' => 'Update Participant Info',
       'description' => 'Powerbase profile for updating responses to invitations',
       'is_active' => 1,
       'name' => 'participantfields_update_event_invite_response',
@@ -227,15 +234,16 @@ function participantfields_civicrm_managed(&$entities) {
       $id = $result['id'];
       $values = array_pop($result['values']);
       $label = $values['label'];
+      $weight += 10;
       $profile_fields[] = array(
         'uf_group_id' => '$value.id',
         'field_name' => 'custom_' . $id,
         'is_active' => 1,
         'label' => $label,
         'field_type' => 'Participant',
-        "weight" => 10 + $weight,
-        "in_selector" => "1",
-        "visibility" => "Public Pages and Listings",
+        "weight" => $weight,
+        "in_selector" => "0",
+        'visibility' => 'User and User Admin Only',
       );
     }
   }
@@ -244,6 +252,18 @@ function participantfields_civicrm_managed(&$entities) {
   // until we have all the pieces before we add it because we have
   // update set to never.
   if (count($profile_fields) > 0) {
+    // We throw in one more core field here, participant status.
+    $profile_fields[] = array(
+      'uf_group_id' => '$value.id',
+      'field_name' => 'participant_status',
+      'is_active' => '1',
+      'weight' => 1,
+      'visibility' => 'User and User Admin Only',
+      'in_selector' => '0',
+      'label' => 'Participant Status',
+      'field_type' => 'Participant'
+    );
+
     $profile['params']['api.uf_field.create'] = $profile_fields;
     $entities[] = $profile;
   }
