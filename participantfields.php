@@ -201,10 +201,13 @@ function participantfields_create_profiles() {
       'participantfields_reminder_date' => array(),
       'participantfields_reminder_response' => array(),
     );
-    // Ensure the cache is clear so our new fields are recognized.
+    // Go to ridiculous lengths to clear the cache so the creation of the
+    // profile field will recognize that the custom field exists, even
+    // though it was created after the cache was populated.
     CRM_Event_BAO_Participant::$_importableFields = NULL;
     $force = TRUE;
     CRM_Core_BAO_UFField::getAvailableFieldsFlat($force);
+    CRM_Core_Invoke::rebuildMenuAndCaches();
     
     foreach ($fields as $field_name => $props) {
       // Get the custom id of the field we want.
