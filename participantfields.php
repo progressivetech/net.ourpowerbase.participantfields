@@ -38,23 +38,6 @@ function participantfields_civicrm_install() {
 function participantfields_civicrm_postInstall() {
   _participantfields_civix_civicrm_postInstall();
 
-  // Via managed entities, we create a group of custom fields. Some of the fields
-  // are radio fields that have options, so we ask managed entities to create
-  // those options. 
-  //
-  // However, managed entities cannot assign each custom field to the
-  // appropriate option group so we do that manually here.
-
-  $pairs = array(
-    'participantfields_reminder_response' => 'participantfields_invite_response_values',
-    'participantfields_invitation_response' => 'participantfields_invite_response_values',
-    'participantfields_second_call_response' => 'participantfields_invite_response_values',
-  );
-
-  foreach($pairs as $field_name => $option_group_name) {
-    participantfields_assign_option_group_to_custom_field($field_name, $option_group_name); 
-  }
-
   // Bugfix. It seems that managed entities do not properly set our
   // custom data group to be based on participants by event so updated it here.
   $params = array(
@@ -77,37 +60,6 @@ function participantfields_civicrm_postInstall() {
 
   CRM_Core_ManagedEntities::singleton(TRUE)->reconcile();
 
-}
-
-/**
- * Assign option groups to fields
- *
- * @param string $field_name 
- *   string name of the field
- * @param string $option_group_name
- *   string name of option group
- *
- **/
-function participantfields_assign_option_group_to_custom_field($field_name, $option_group_name) {
-  $params = array('name' => $option_group_name);
-  $option_group = civicrm_api3('option_group', 'getsingle', $params);
-
-  // Get the custom field.
-  $params = array('name' => $field_name);
-
-  try {
-    $field = civicrm_api3('custom_field', 'getsingle', $params); 
-    // Update the custom field.
-    $field['option_group_id'] = $option_group['id'];
-    civicrm_api3('custom_field', 'create', $field);
-  }
-  catch(CiviCRM_API3_Exception $e) {
-    if ($e->getMessage() == 'Expected one CustomField but found 0') {
-      // If we can't locate the custom field, it might mean they have disabled
-      // it, deleted it or it never existed in the first place. That's ok.
-      return;
-    }
-  }
 }
 
 /**
@@ -215,14 +167,7 @@ function participantfields_civicrm_managed(&$entities) {
   );
   $fields = array(
     'participantfields_child_care_needed',
-    'participantfields_ride_to',
-    'participantfields_ride_from',
-    'participantfields_invitation_date',
-    'participantfields_invitation_response',
-    'participantfields_second_call_date',
-    'participantfields_second_call_response',
-    'participantfields_reminder_date',
-    'participantfields_reminder_response',
+    'participantfields_dietary_restrictions',
   );
  
   $profile_fields = array();
@@ -234,6 +179,7 @@ function participantfields_civicrm_managed(&$entities) {
       $id = $result['id'];
       $values = array_pop($result['values']);
       $label = $values['label'];
+      $post_help = $values['help_post'];
       $weight += 10;
       $profile_fields[] = array(
         'uf_group_id' => '$value.id',
@@ -241,8 +187,9 @@ function participantfields_civicrm_managed(&$entities) {
         'is_active' => 1,
         'label' => $label,
         'field_type' => 'Participant',
-        "weight" => $weight,
-        "in_selector" => "0",
+        'weight' => $weight,
+        'help_post' => $post_help,
+        'in_selector' => "0",
         'visibility' => 'User and User Admin Only',
       );
     }
