@@ -1,4 +1,4 @@
-# Constituent Fields 
+# Participant Fields 
 
 ![Screenshot](/images/screenshot.png)
 
