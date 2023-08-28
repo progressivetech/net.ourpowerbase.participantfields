@@ -57,7 +57,7 @@ return [
         'is_active' => TRUE, 
         'is_view' => FALSE, 
         'options_per_line' => NULL, 
-        'text_length' => 128,
+        'text_length' => 256,
         'start_date_years' => NULL, 
         'end_date_years' => NULL, 
         'date_format' => NULL, 
